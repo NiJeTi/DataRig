@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -32,9 +33,11 @@ namespace RigAPI
 
             services.AddSingleton<NpgsqlConnection>(new NpgsqlConnection(postgresCS));
 
-            string mongoCS = $"mongodb://{Configuration["Mongo:Host"]}:{Configuration["Mongo:Port"]}";
-            
-            services.AddSingleton<IMongoDatabase>(new MongoClient(mongoCS).GetDatabase(Configuration["Mongo:Database"]));
+            string mongoCS =
+                $"mongodb://{Configuration["Mongo:Username"]}:{Configuration["Mongo:Password"]}@{Configuration["Mongo:Host"]}:{Configuration["Mongo:Port"]}";
+
+            services.AddSingleton<IMongoDatabase>(
+                new MongoClient(mongoCS).GetDatabase(Configuration["Mongo:Database"]));
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
