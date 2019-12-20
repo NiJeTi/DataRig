@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -25,18 +24,19 @@ namespace RigAPI
         {
             services.AddControllers().AddNewtonsoftJson();
 
-            string postgresCS = $"Host={Configuration["Postgres:Host"]};" +
-                                $"Port={Configuration["Postgres:Port"]};" +
-                                $"Username={Configuration["Postgres:Username"]};" +
-                                $"Password={Configuration["Postgres:Password"]};" +
-                                $"Database={Configuration["Postgres:Database"]}";
+            string postgresCS = string.Format("{0}{1}{2}{3}{4}",
+                                              $"Host={Configuration["Postgres:Host"]};",
+                                              $"Port={Configuration["Postgres:Port"]};",
+                                              $"Username={Configuration["Postgres:Username"]};",
+                                              $"Password={Configuration["Postgres:Password"]};",
+                                              $"Database={Configuration["Postgres:Database"]}");
 
-            services.AddSingleton<NpgsqlConnection>(new NpgsqlConnection(postgresCS));
+            services.AddSingleton(new NpgsqlConnection(postgresCS));
 
             string mongoCS =
                 $"mongodb://{Configuration["Mongo:Username"]}:{Configuration["Mongo:Password"]}@{Configuration["Mongo:Host"]}:{Configuration["Mongo:Port"]}";
 
-            services.AddSingleton<IMongoDatabase>(
+            services.AddSingleton(
                 new MongoClient(mongoCS).GetDatabase(Configuration["Mongo:Database"]));
         }
 
