@@ -8,9 +8,11 @@ using MongoDB.Driver;
 
 using Npgsql;
 
+using RigAPI.Wrappers;
+
 namespace RigAPI
 {
-    public class Startup
+    public sealed class Startup
     {
         public Startup(IConfiguration configuration)
         {
@@ -22,8 +24,6 @@ namespace RigAPI
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddControllers().AddNewtonsoftJson();
-
             string postgresCS = string.Format("{0}{1}{2}{3}{4}",
                                               $"Host={Configuration["Postgres:Host"]};",
                                               $"Port={Configuration["Postgres:Port"]};",
@@ -31,13 +31,16 @@ namespace RigAPI
                                               $"Password={Configuration["Postgres:Password"]};",
                                               $"Database={Configuration["Postgres:Database"]}");
 
-            services.AddSingleton(new NpgsqlConnection(postgresCS));
-
             string mongoCS =
                 $"mongodb://{Configuration["Mongo:Username"]}:{Configuration["Mongo:Password"]}@{Configuration["Mongo:Host"]}:{Configuration["Mongo:Port"]}";
 
-            services.AddSingleton(
-                new MongoClient(mongoCS).GetDatabase(Configuration["Mongo:Database"]));
+            string redisCS = $"{Configuration["Redis:Host"]}:{Configuration["Redis:Port"]}";
+
+            services.AddControllers().AddNewtonsoftJson();
+
+            services.AddSingleton<Postgres>(p => new Postgres(postgresCS));
+            services.AddSingleton<Mongo>(m => new Mongo(mongoCS, Configuration["Mongo:Database"]));
+            services.AddSingleton<Redis>(r => new Redis(redisCS, int.Parse(Configuration["Redis:DatabaseNumber"])));
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
