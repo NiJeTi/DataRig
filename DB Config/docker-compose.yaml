@@ -69,6 +69,8 @@ services:
     image: 'neo4j'
     container_name: 'Neo4j'
     hostname: 'Neo4j'
+    environment:
+      - NEO4J_AUTH=neo4j/admin
     volumes:
       - neo4j:/data
     networks:
