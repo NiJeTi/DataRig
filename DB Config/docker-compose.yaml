@@ -39,6 +39,8 @@ services:
       - ALLOW_EMPTY_PASSWORD=yes
     networks:
       - data_default
+    ports:
+      - 6379:6379
 
   elasticsearch:
     image: 'elasticsearch:7.5.1'
