@@ -58,7 +58,6 @@ namespace RigAPI.Controllers
                 new NpgsqlCommand($"SELECT * FROM add_author('{author.Name}', '{author.Bio}')", postgres.connection))
             {
                 await using var reader = await command.ExecuteReaderAsync();
-
                 await reader.ReadAsync();
 
                 authorID = (int) reader[0];
