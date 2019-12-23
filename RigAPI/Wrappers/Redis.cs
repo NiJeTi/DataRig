@@ -11,6 +11,8 @@ namespace RigAPI.Wrappers
 
         public Redis (string connectionString, int databaseNumber)
         {
+            asyncState = new object();
+            
             connection = ConnectionMultiplexer.Connect(connectionString);
             database   = connection.GetDatabase(databaseNumber, asyncState);
         }
