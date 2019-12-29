@@ -113,7 +113,15 @@ namespace RigAPI.Controllers
             foreach (string tag in article.Tags)
                 await AddTag(tag, articleID);
 
-            // TODO: Throw references to Neo4j
+            await neo4j.session.RunAsync("CREATE (a:Article) " +
+                                         $"SET a.ID = {articleID}");
+
+            foreach (int reference in article.References)
+            {
+                await neo4j.session.RunAsync("MATCH (a:Article),(b:Article) " +
+                                             $"WHERE a.ID = {articleID} AND b.ID = {reference} " +
+                                             "CREATE (a)-[r:Reference]->(b)");
+            }
 
             return Ok(articleID);
         }
@@ -123,8 +131,6 @@ namespace RigAPI.Controllers
         [ProducesResponseType(415)]
         public async Task<IActionResult> UploadImage(IFormFile image)
         {
-            // TODO: Save image info to another collection
-
             if (image.ContentType != "image/jpeg")
                 return StatusCode(415);
 
