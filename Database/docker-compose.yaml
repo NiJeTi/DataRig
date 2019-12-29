@@ -1,7 +1,6 @@
 version: '3.7'
 
 services:
-
     postgres:
         image: 'postgres'
         container_name: 'PostgreSQL'
@@ -25,7 +24,7 @@ services:
             - MONGO_INITDB_ROOT_USERNAME=root
             - MONGO_INITDB_ROOT_PASSWORD=root
         volumes:
-            - mongodb:/data/db
+            - mongo:/data/db
         networks:
             - data_default
         ports:
@@ -72,15 +71,6 @@ services:
             - 7474:7474
             - 7687:7687
 
-    kibana:
-        image: 'kibana:7.5.1'
-        container_name: 'Kibana'
-        hostname: 'Kibana'
-        networks:
-            - data_default
-        ports:
-            - 5601:5601
-
 networks:
     data_default:
         name: 'data_default'
@@ -88,6 +78,6 @@ networks:
 
 volumes:
     postgres:
-    mongodb:
-    neo4j:
+    mongo:
     elasticsearch:
+    neo4j:
