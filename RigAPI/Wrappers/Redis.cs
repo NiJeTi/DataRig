@@ -7,14 +7,18 @@ namespace RigAPI.Wrappers
         private object asyncState;
 
         public readonly ConnectionMultiplexer connection;
-        public readonly IDatabase             database;
+
+        public readonly IServer   server;
+        public readonly IDatabase database;
 
         public Redis (string connectionString, int databaseNumber)
         {
             asyncState = new object();
-            
+
             connection = ConnectionMultiplexer.Connect(connectionString);
-            database   = connection.GetDatabase(databaseNumber, asyncState);
+
+            server   = connection.GetServer(connectionString, asyncState);
+            database = connection.GetDatabase(databaseNumber, asyncState);
         }
     }
 }
