@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -7,7 +8,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 using MongoDB.Bson;
-using MongoDB.Driver.GridFS;
 
 using Npgsql;
 
@@ -27,8 +27,6 @@ namespace RigAPI.Controllers
         private Elastic        elastic;
         private Wrappers.Neo4j neo4j;
 
-        private GridFSBucket gridFS;
-
         public ContentController(Postgres postgres, Mongo mongo, Redis redis, Elastic elastic, Wrappers.Neo4j neo4j)
         {
             this.postgres = postgres;
@@ -36,16 +34,70 @@ namespace RigAPI.Controllers
             this.redis    = redis;
             this.elastic  = elastic;
             this.neo4j    = neo4j;
-
-            gridFS = this.mongo.gridFS;
         }
 
         [HttpGet("articles/{id}")]
-        [ProducesResponseType(200)]
+        [ProducesResponseType(typeof(OutputArticle), 200)]
         [ProducesResponseType(404)]
         public async Task<IActionResult> GetArticle(int id)
         {
-            throw new NotImplementedException();
+            var article = new OutputArticle();
+
+            string              textReference;
+            IEnumerable<string> imageReferences;
+
+            await using (var command =
+                new NpgsqlCommand($"SELECT * FROM compile_article({id})", postgres.connection))
+            {
+                await using var reader = await command.ExecuteReaderAsync();
+
+                if (!await reader.ReadAsync())
+                    return NotFound();
+
+                article.AuthorName = reader[0] as string;
+                textReference      = reader[1] as string;
+                imageReferences    = reader[2] as IEnumerable<string>;
+
+                await reader.CloseAsync();
+            }
+
+            var elkResponse = await elastic.client.GetAsync<InputArticleContent>(textReference);
+            article.Title = elkResponse.Source.Title;
+            article.Text  = elkResponse.Source.Text;
+
+            foreach (string imageID in imageReferences)
+                article.Images.Add(await mongo.gridFS.DownloadAsBytesAsync(ObjectId.Parse(imageID)));
+
+            var neo4jReader = await neo4j.session.RunAsync(
+                                  "MATCH (a:Article)-[:REFERENCE]->(b:Article) " +
+                                  $"WHERE a.ID = {id} " +
+                                  "RETURN b.ID");
+
+            var articleReferences = new List<int>();
+
+            while (await neo4jReader.FetchAsync())
+                articleReferences.Add(Convert.ToInt32(neo4jReader.Current[0]));
+
+            foreach (var command in articleReferences.Select(articleID => new NpgsqlCommand(
+                                                                 "SELECT text_ref FROM articles " +
+                                                                 $"WHERE id = {articleID}", postgres.connection)))
+            {
+                await using var reader = await command.ExecuteReaderAsync();
+
+                while (await reader.ReadAsync())
+                {
+                    var titleResponse = await elastic.client.GetAsync<InputArticleContent>(reader[0] as string);
+                    article.References.Add(titleResponse.Source.Title);
+                }
+
+                await reader.CloseAsync();
+            }
+
+            article.Tags = from tag in redis.server.Keys()
+                           where redis.database.SetScan(tag, id) != null
+                           select tag.ToString();
+
+            return Ok(article);
         }
 
         [HttpGet("images/{id}")]
@@ -57,7 +109,7 @@ namespace RigAPI.Controllers
 
             try
             {
-                imageBytes = await gridFS.DownloadAsBytesAsync(ObjectId.Parse(id));
+                imageBytes = await mongo.gridFS.DownloadAsBytesAsync(ObjectId.Parse(id));
             }
             catch (Exception e)
             {
@@ -70,25 +122,29 @@ namespace RigAPI.Controllers
         [HttpGet("tags/{tag}")]
         [ProducesResponseType(typeof(int[]), 200)]
         [ProducesResponseType(404)]
-        public async Task<IActionResult> GetTag(string tag)
+        public IActionResult GetTag(string tag)
         {
-            string value = await redis.database.StringGetAsync(tag);
+            var set = redis.database.SetScan(tag).ToArray();
 
-            if (value is null)
+            if (!set.Any())
                 return NotFound();
 
-            var articles = value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                                .Select(int.Parse)
-                                .ToArray();
+            var articles = set
+                           .Select(a => a.ToString())
+                           .ToArray();
 
             return Ok(articles);
         }
 
         [HttpPost("articles/post")]
         [ProducesResponseType(typeof(int), 200)]
-        public async Task<IActionResult> PostArticle([FromBody] Article article)
+        public async Task<IActionResult> PostArticle([FromBody] InputArticle article)
         {
-            var elasticResponse = await elastic.client.IndexDocumentAsync(new { text = article.Text });
+            article.Images     = article.Images.Distinct().ToArray();
+            article.References = article.References.Distinct();
+            article.Tags       = article.Tags.Distinct();
+
+            var elasticResponse = await elastic.client.IndexDocumentAsync(article.Content);
 
             int articleID;
 
@@ -111,16 +167,17 @@ namespace RigAPI.Controllers
             }
 
             foreach (string tag in article.Tags)
-                await AddTag(tag, articleID);
+                await redis.database.SetAddAsync(tag, articleID);
 
             await neo4j.session.RunAsync("CREATE (a:Article) " +
                                          $"SET a.ID = {articleID}");
 
             foreach (int reference in article.References)
             {
-                await neo4j.session.RunAsync("MATCH (a:Article),(b:Article) " +
-                                             $"WHERE a.ID = {articleID} AND b.ID = {reference} " +
-                                             "CREATE (a)-[r:Reference]->(b)");
+                await neo4j.session.RunAsync(
+                    "MATCH (a:Article),(b:Article) " +
+                    $"WHERE a.ID = {articleID} AND b.ID = {reference} " +
+                    "CREATE (a)-[:REFERENCE]->(b)");
             }
 
             return Ok(articleID);
@@ -134,23 +191,13 @@ namespace RigAPI.Controllers
             if (image.ContentType != "image/jpeg")
                 return StatusCode(415);
 
-            ObjectId newImageID;
+            await using var stream = new MemoryStream();
 
-            await using (var stream = new MemoryStream())
-            {
-                await image.CopyToAsync(stream);
+            await image.CopyToAsync(stream);
 
-                newImageID = await gridFS.UploadFromBytesAsync(image.FileName, stream.ToArray());
-            }
+            var newImageID = await mongo.gridFS.UploadFromBytesAsync(image.FileName, stream.ToArray());
 
             return Ok(newImageID);
-        }
-
-        private async Task AddTag(string tag, int articleID)
-        {
-            string existing = await redis.database.StringGetAsync(tag);
-
-            await redis.database.StringSetAsync(tag, $"{existing}{articleID} ");
         }
     }
 }
