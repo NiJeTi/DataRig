@@ -24,7 +24,7 @@ namespace RigAPI.Controllers
         {
             Author author = default;
 
-            await using (var command = new NpgsqlCommand($"SELECT * FROM authors " +
+            await using (var command = new NpgsqlCommand("SELECT * FROM authors " +
                                                          $"WHERE authors.id = {id}", postgres.connection))
             {
                 await using var reader = await command.ExecuteReaderAsync();
