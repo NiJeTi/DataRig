@@ -13,8 +13,7 @@ namespace RigAPI.Wrappers
             var uri = new Uri($"http://{connectionString}/");
 
             var settings = new ConnectionSettings(uri)
-                .DefaultIndex(index)
-                .PrettyJson();
+                .DefaultIndex(index);
 
             client = new ElasticClient(settings);
         }
