@@ -61,7 +61,7 @@ namespace RigAPI.Controllers
                 await reader.CloseAsync();
             }
 
-            var elkResponse = await elastic.client.GetAsync<InputArticleContent>(textReference);
+            var elkResponse = await elastic.client.GetAsync<ElasticArticleContent>(textReference);
             article.Title = elkResponse.Source.Title;
             article.Text  = elkResponse.Source.Text;
 
@@ -79,7 +79,7 @@ namespace RigAPI.Controllers
                 articleReferences.Add(Convert.ToInt32(neo4jReader.Current[0]));
 
             article.References.AddRange(await GetTitlesByIDs(articleReferences));
-            
+
             article.Tags = from tag in redis.server.Keys()
                            where redis.database.SetScan(tag, id) != null
                            select tag.ToString();
@@ -119,6 +119,25 @@ namespace RigAPI.Controllers
             return Ok(await GetTitlesByIDs(set.Select(a => int.Parse(a))));
         }
 
+        [HttpGet("articles/find")]
+        [ProducesResponseType(typeof(IEnumerable<ElasticArticleContent>), 200)]
+        [ProducesResponseType(404)]
+        public async Task<IActionResult> FindArticle([FromForm] string text)
+        {
+            var searchResult =
+                await elastic.client.SearchAsync<ElasticArticleContent>(
+                    s => s.Query(
+                        q => q.MatchPhrase(
+                            m => m.Field(
+                                      f => f.Text)
+                                  .Query(text))));
+
+            if (searchResult.Documents.Count == 0)
+                return NotFound();
+
+            return Ok(searchResult.Documents);
+        }
+
         [HttpPost("articles/post")]
         [ProducesResponseType(typeof(int), 200)]
         public async Task<IActionResult> PostArticle([FromBody] InputArticle article)
@@ -127,18 +146,15 @@ namespace RigAPI.Controllers
             article.References = article.References.Distinct();
             article.Tags       = article.Tags.Distinct();
 
-            var elasticResponse = await elastic.client.IndexDocumentAsync(article.Content);
-
             int articleID;
 
             await using (var command = new NpgsqlCommand("SELECT * FROM add_article(" +
                                                          "@author_id, " +
-                                                         "@text_ref, " +
+                                                         "NULL, " +
                                                          "@images)",
                                                          postgres.connection))
             {
                 command.Parameters.Add("@author_id", NpgsqlDbType.Integer).Value                   = article.AuthorID;
-                command.Parameters.Add("@text_ref", NpgsqlDbType.Varchar).Value                    = elasticResponse.Id;
                 command.Parameters.Add("@images", NpgsqlDbType.Array | NpgsqlDbType.Varchar).Value = article.Images;
 
                 await using var reader = await command.ExecuteReaderAsync();
@@ -147,6 +163,16 @@ namespace RigAPI.Controllers
                 articleID = (int) reader[0];
 
                 await reader.CloseAsync();
+            }
+
+            article.Content.ID = articleID;
+            var elasticUpload = await elastic.client.IndexDocumentAsync(article.Content);
+
+            await using (var command = new NpgsqlCommand("UPDATE articles " +
+                                                         $"SET text_ref = {elasticUpload.Id} " +
+                                                         $"WHERE id = {articleID}", postgres.connection))
+            {
+                await command.ExecuteNonQueryAsync();
             }
 
             foreach (string tag in article.Tags)
@@ -186,8 +212,8 @@ namespace RigAPI.Controllers
         private async Task<IEnumerable<string>> GetTitlesByIDs(IEnumerable<int> IDs)
         {
             var enumerable = IDs.ToList();
-            var titles = new List<string>(enumerable.Count);
-            
+            var titles     = new List<string>(enumerable.Count);
+
             foreach (var command in enumerable.Select(articleID => new NpgsqlCommand(
                                                           "SELECT text_ref FROM articles " +
                                                           $"WHERE id = {articleID}", postgres.connection)))
@@ -196,7 +222,7 @@ namespace RigAPI.Controllers
 
                 while (await reader.ReadAsync())
                 {
-                    var titleResponse = await elastic.client.GetAsync<InputArticleContent>(reader[0] as string);
+                    var titleResponse = await elastic.client.GetAsync<ElasticArticleContent>(reader[0] as string);
                     titles.Add(titleResponse.Source.Title);
                 }
 
