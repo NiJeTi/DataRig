@@ -170,11 +170,11 @@ namespace RigAPI.Controllers
                 await reader.CloseAsync();
             }
 
-            article.Content.ID = articleID;
+            article.Content.ArticleID = articleID;
             var elasticUpload = await elastic.client.IndexDocumentAsync(article.Content);
 
             await using (var command = new NpgsqlCommand("UPDATE articles " +
-                                                         $"SET text_ref = {elasticUpload.Id} " +
+                                                         $"SET text_ref = '{elasticUpload.Id}' " +
                                                          $"WHERE id = {articleID}", postgres.connection))
             {
                 await command.ExecuteNonQueryAsync();
@@ -221,7 +221,7 @@ namespace RigAPI.Controllers
 
             foreach (var command in enumerable.Select(articleID => new NpgsqlCommand(
                                                           "SELECT text_ref FROM articles " +
-                                                          $"WHERE id = {articleID}", postgres.connection)))
+                                                          $"WHERE id = '{articleID}'", postgres.connection)))
             {
                 await using var reader = await command.ExecuteReaderAsync();
 
@@ -231,7 +231,7 @@ namespace RigAPI.Controllers
 
                     titles.Add(new OutputReference
                     {
-                        ID    = titleResponse.Source.ID.Value,
+                        ID    = titleResponse.Source.ArticleID.Value,
                         Title = titleResponse.Source.Title
                     });
                 }
