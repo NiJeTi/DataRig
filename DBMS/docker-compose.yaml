@@ -12,7 +12,7 @@ services:
         networks:
           - data_default
         ports:
-          - 5050:80
+          - 5050:5050
 
     mongo-express:
         image: 'mongo-express'
