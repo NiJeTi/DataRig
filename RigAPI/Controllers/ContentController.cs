@@ -81,7 +81,7 @@ namespace RigAPI.Controllers
             article.References.AddRange(await GetTitlesByIDs(articleReferences));
 
             article.Tags = from tag in redis.server.Keys()
-                           where redis.database.SetScan(tag, id) != null
+                           where redis.database.SetScan(tag, id).Count() != 0
                            select tag.ToString();
 
             return Ok(article);
@@ -124,13 +124,15 @@ namespace RigAPI.Controllers
         [ProducesResponseType(404)]
         public async Task<IActionResult> FindArticle([FromForm] string text)
         {
+            text = text.ToLower();
+            
             var searchResult =
                 await elastic.client.SearchAsync<ElasticArticleContent>(
-                    s => s.Query(
-                        q => q.MatchPhrase(
-                            m => m.Field(
-                                      f => f.Text)
-                                  .Query(text))));
+                    search => search.Query(
+                        query => query.Wildcard(
+                            match => match
+                                     .Field(field => field.Text)
+                                     .Value($"*{text}*"))));
 
             if (searchResult.Documents.Count == 0)
                 return NotFound();
@@ -209,10 +211,10 @@ namespace RigAPI.Controllers
             return Ok(newImageID);
         }
 
-        private async Task<IEnumerable<string>> GetTitlesByIDs(IEnumerable<int> IDs)
+        private async Task<IEnumerable<OutputReference>> GetTitlesByIDs(IEnumerable<int> IDs)
         {
             var enumerable = IDs.ToList();
-            var titles     = new List<string>(enumerable.Count);
+            var titles     = new List<OutputReference>(enumerable.Count);
 
             foreach (var command in enumerable.Select(articleID => new NpgsqlCommand(
                                                           "SELECT text_ref FROM articles " +
@@ -223,7 +225,12 @@ namespace RigAPI.Controllers
                 while (await reader.ReadAsync())
                 {
                     var titleResponse = await elastic.client.GetAsync<ElasticArticleContent>(reader[0] as string);
-                    titles.Add(titleResponse.Source.Title);
+
+                    titles.Add(new OutputReference
+                    {
+                        ID    = titleResponse.Source.ID.Value,
+                        Title = titleResponse.Source.Title
+                    });
                 }
 
                 await reader.CloseAsync();
