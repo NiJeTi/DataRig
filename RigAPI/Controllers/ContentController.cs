@@ -124,6 +124,9 @@ namespace RigAPI.Controllers
         [ProducesResponseType(404)]
         public async Task<IActionResult> FindArticle([FromForm] string text)
         {
+            if (string.IsNullOrWhiteSpace(text))
+                text = string.Empty;
+
             text = text.ToLower();
             
             var searchResult =
